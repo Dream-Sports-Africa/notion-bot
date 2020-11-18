@@ -60,7 +60,7 @@ def all_notion_pages():
 
 def all_notion_pages_with_assignees_and_due_dates():
     for page in all_notion_pages():
-        if page.due and page.assign:
+        if hasattr(page, 'due') and page.due and hasattr(page, 'assign') and page.assign:
             yield page
 
 def redis_keys(prefix):
