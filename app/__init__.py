@@ -7,7 +7,7 @@ import googleapiclient
 from datetime import datetime
 from notion.client import NotionClient
 from gcsa.event import Event
-from .sync_calendars import auth_flow, all_notion_tables, notion_base_url, notion_url, redis_client, sync_calendars_flask, GoogleCalendar
+from .sync_calendars import auth_flow, all_notion_tables, notion_base_url, notion_url, pretty_table_name, redis_client, sync_calendars_flask, GoogleCalendar
 
 
 app = flask.Flask(__name__)
@@ -17,11 +17,7 @@ def landing_page():
     html = ''
     tracking_links = ''
     for table in all_notion_tables():
-        b = table
-        while hasattr(b, 'name') or (hasattr(b, 'title') and b.title == 'Tasks'):
-            b = b.parent
-
-        tracking_links += f'<li><a href="{notion_url(table.id)}">{b.title}</a></li>'
+        tracking_links += f'<li><a href="{notion_url(table.id)}">{pretty_table_name(table)}</a></li>'
 
     html += '<head><title>DSA Notion Bot</title></head>'
     html += '<body>'

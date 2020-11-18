@@ -50,15 +50,14 @@ def all_notion_tables():
     for t in redis_client.lrange('notion-tables', 0, -1):
         yield notion_client.get_collection_view(t.decode("utf-8"))
 
-def all_notion_pages():
-    for table in all_notion_tables():
-        for page in table.default_query().execute():
-            yield page
+def pretty_table_name(table):
+    b = table
+    while hasattr(b, 'name') or (hasattr(b, 'title') and b.title == 'Tasks'):
+        b = b.parent
+    return b.title
 
-def all_notion_pages_with_assignees_and_due_dates():
-    for page in all_notion_pages():
-        if hasattr(page, 'due') and page.due and hasattr(page, 'assign') and page.assign:
-            yield page
+def all_notion_pages(table):
+    return table.default_query().execute()
 
 def redis_keys(prefix):
     return set(key.decode("utf-8").replace(f'{prefix}:', '') for key in redis_client.keys(f'{prefix}:*'))
@@ -147,27 +146,48 @@ def sync_calendars():
 
     notion_page_ids = redis_keys('notion-page')
 
-    for page in all_notion_pages_with_assignees_and_due_dates():
-        if page.id in notion_page_ids:
-            yield {
-                "action": "sync_events_start",
-                "page_id": page.id,
-                "page_title": page.title
-            }
-            for message in sync_events(calendars, page):
-                yield message
-        else:
-            emails = assignees(calendars, page)
-            if emails:
+    for table in all_notion_tables():
+        yield {
+            "action": "sync_table_start",
+            "table_url": notion_url(table.id),
+            "table_name": pretty_table_name(table)
+        }
+
+        for page in all_notion_pages(table):
+            due = getattr(page, 'due', None)
+            assign = getattr(page, 'assign', None)
+            if not due:
                 yield {
-                    "action": "add_events",
+                    "action": "skip_page_no_due_date",
                     "page_id": page.id,
-                    "page_title": page.title,
-                    "emails": emails
+                    "page_title": page.title
                 }
-                # yield f'New page {page.id} "{page.title}", adding for {emails}...'
-                added = add_events(calendars, event_from_page(page), emails)
-                redis_set_notion_page(page, added)
+            elif not assign:
+                yield {
+                    "action": "skip_page_no_assign",
+                    "page_id": page.id,
+                    "page_title": page.title
+                }
+            elif page.id in notion_page_ids:
+                yield {
+                    "action": "sync_events_start",
+                    "page_id": page.id,
+                    "page_title": page.title
+                }
+                for message in sync_events(calendars, page):
+                    yield message
+            else:
+                emails = assignees(calendars, page)
+                if emails:
+                    yield {
+                        "action": "add_events",
+                        "page_id": page.id,
+                        "page_title": page.title,
+                        "emails": emails
+                    }
+                    # yield f'New page {page.id} "{page.title}", adding for {emails}...'
+                    added = add_events(calendars, event_from_page(page), emails)
+                    redis_set_notion_page(page, added)
 
     yield { "action": "sync_calendars_finished" }
 
@@ -184,10 +204,16 @@ def sync_calendars_flask(email = None):
     for event in sync_calendars():
         if event['action'] == 'sync_calendars_start':
             yield '<p>Syncing calendars...</p>'
+        elif event['action'] == 'sync_table_start':
+            yield f'<p>Syncing pages for <a target="_blank" href="{event["table_url"]}">{event["table_name"]}</a>...</p>'
+        elif event['action'] == 'skip_page_no_due_date':
+            yield f'<p>Skipping sync of <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> as it has no due date...</p>'
+        elif event['action'] == 'skip_page_no_assign':
+            yield f'<p>Skipping sync of <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> as no one is assigned to it...</p>'
         elif event['action'] == 'sync_events_start':
-            yield f'<p>Syncing events for <a href={notion_url(event["page_id"])}>{event["page_title"]}</a>...</p>'
+            yield f'<p>Syncing events for <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a>...</p>'
         elif event['action'] == 'add_events':
-            yield f'<p>Adding events for <a href={notion_url(event["page_id"])}>{event["page_title"]}</a> to calendars of {mailto_links(event["emails"])}...</p>'
+            yield f'<p>Adding events for <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> to calendars of {mailto_links(event["emails"])}...</p>'
         elif event['action'] == 'sync_calendars_finished':
             yield '<p>Syncing calendars finished!</p>'
         elif event['action'] == 'no_changes':
