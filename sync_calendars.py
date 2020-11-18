@@ -108,6 +108,7 @@ def sync_events(calendars, page):
     current_assignees = [user.email for user in page.assign if user.email in calendars]
 
     if info_the_same and past_assignees == current_assignees:
+        print("  - No change ")
         return
 
     all_assignees = set(past_assignees + current_assignees)
@@ -119,8 +120,10 @@ def sync_events(calendars, page):
             for added in page_in_redis["added"]:
                 if added['email'] == email:
                     calendars[email].delete_event(Event(event_id = added['event_id']))
+                    print(f'  - removed from calendar for {email}')
         elif not email in past_assignees:
             next_added += add_events(calendars, event, [email])
+            print(f'  - added to calendar for {email}')
         else:
             for added in page_in_redis["added"]:
                 if added['email'] == email:
@@ -128,10 +131,14 @@ def sync_events(calendars, page):
                     if not info_the_same:
                         event_with_id = event_from_page(page, event_id = added['event_id'])
                         calendars[email].update_event(event_with_id)
+                        print(f'  - edited event details for {email}')
+                    else:
+                        print("  - nothing to update")
 
     redis_set_notion_page(page, next_added)
 
 def sync_calendars():
+    print("Syncing calendars...")
     calendars = {}
     for email in redis_keys('creds'):
         credentials = oauth2client.client.OAuth2Credentials.from_json(redis_json_get(f'creds:{email}'))
@@ -141,12 +148,16 @@ def sync_calendars():
 
     for page in all_notion_pages_with_assignees_and_due_dates():
         if page.id in notion_page_ids:
+            print(f'Page {page.id} "{page.title}" already on peoples calendars, syncing...')
             sync_events(calendars, page)
         else:
             emails = assignees(calendars, page)
             if emails:
+                print(f'New page {page.id} "{page.title}", adding for {emails}...')
                 added = add_events(calendars, event_from_page(page), emails)
                 redis_set_notion_page(page, added)
+
+    print("Calendars synced...")
 
 if __name__ == "__main__":
     sync_calendars()
