@@ -118,7 +118,7 @@ def sync_events(calendars, page):
         if not email in current_assignees:
             for added in page_in_redis["added"]:
                 if added['email'] == email:
-                    calendars[email].delete_event(Event(event_id = added['event_id']))
+                    calendars[email].delete_event(Event(summary = event.summary, start = event.start, event_id = added['event_id']))
                     yield { "action": "delete_event", "email": email }
         elif not email in past_assignees:
             next_added += add_events(calendars, event, [email])
