@@ -102,14 +102,7 @@ def sync_events(calendars, page):
     page_in_redis['start'] = datetime.fromisoformat(page_in_redis['start'])
     page_in_redis['end'] = datetime.fromisoformat(page_in_redis['end'])
 
-    print("page.due.start", page.due.start)
-    print("page_in_redis['start']", page_in_redis['start'])
-    print("page.due.end", page.due.end)
-    print("page_in_redis['end']", page_in_redis['end'])
-    print("page.title", page.title)
-    print("page_in_redis['summary']", page_in_redis['summary'])
-
-    info_the_same = page.due.start == page_in_redis['start'] and page.due.end == page_in_redis['end'] and page.title == page_in_redis['summary']
+    info_the_same = event.start == page_in_redis['start'] and event.end == page_in_redis['end'] and event.summary == page_in_redis['summary']
 
     past_assignees = [a['email'] for a in page_in_redis["added"]]
     current_assignees = [user.email for user in page.assign if user.email in calendars]
