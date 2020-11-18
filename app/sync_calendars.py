@@ -115,6 +115,8 @@ def sync_events(calendars, page):
     next_added = []
 
     for email in all_assignees:
+        if not email in calendars:
+            yield { "action": "skip_no_email", "email": email }
         if not email in current_assignees:
             for added in page_in_redis["added"]:
                 if added['email'] == email:
@@ -218,6 +220,8 @@ def sync_calendars_flask(email = None):
             yield '<p>Syncing calendars finished!</p>'
         elif event['action'] == 'no_changes':
             yield f'<p>&emsp;Calendar info already up to date for {mailto_links(event["emails"])}</p>'
+        elif event['action'] == 'skip_no_email':
+            yield f'<p>&emsp;Cannot sync with calendar of {mailto_link(event["email"])} as permission not yet given</p>'
         elif event['action'] == 'delete_event':
             yield f'<p>&emsp;Removed event from calendar of {mailto_link(event["email"])}</p>'
         elif event['action'] == 'add_event':
