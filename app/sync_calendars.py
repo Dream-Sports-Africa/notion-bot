@@ -9,7 +9,7 @@ from notion.client import NotionClient
 from gcsa.google_calendar import GoogleCalendar
 from gcsa.event import Event
 
-dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 credential_file_path = '/tmp/credentials.json'
 
