@@ -128,12 +128,9 @@ def sync_events(calendars, page):
 
     redis_set_notion_page(page, next_added)
 
-def sync_calendars(emails = None):
-    if not emails:
-        emails = redis_keys('creds')
-
+def sync_calendars():
     calendars = {}
-    for email in emails:
+    for email in redis_keys('creds'):
         credentials = oauth2client.client.OAuth2Credentials.from_json(redis_json_get(f'creds:{email}'))
         calendars[email] = GoogleCalendar(credentials)
 
@@ -199,18 +196,13 @@ def google_callback():
 @app.route('/finishoauth')
 def finishoauth():
     email = flask.request.args.get('email', default = '*', type = str)
-    sync_calendars(set([email]))
-    return f'<p>Calendar sync set up for {email}</p><br><a href="/sync?email={email}">Force calendar sync</a>'
+    sync_calendars()
+    return f'<p>Calendar sync set up for {email}</p><br><a href="/sync">Force calendar sync</a>'
 
 @app.route('/sync')
 def sync_route():
-    email = flask.request.args.get('email', default = '*', type = str)
-    if email == '*':
-        sync_calendars()
-        return '<p>Calendars synced for all users</p>'
-    else:
-        sync_calendars([email])
-        return f'<p>Calendar synced for {email}</p>'
+    sync_calendars()
+    return '<p>Calendars synced for all users</p>'
 
 @app.route('/add-notion-page', methods=['POST'])
 def add_notion_page():
