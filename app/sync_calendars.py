@@ -63,7 +63,10 @@ def assignees(page):
     return set(user.email for user in page.assign)
 
 def add_event(calendars, event, email):
-    return { "email": email, "event_id": calendars[email].add_event(event).id }
+    try:
+        return { "email": email, "event_id": calendars[email].add_event(event).id }
+    except Exception as e:
+        print(e)
 
 def redis_set_notion_page(page, added):
     key = f'notion-page:{page.id}'
@@ -111,8 +114,12 @@ def sync_events(calendars, page):
         if not email in current_assignees:
             for added in page_in_redis["added"]:
                 if added['email'] == email:
-                    calendars[email].delete_event(Event(summary = event.summary, start = event.start, event_id = added['event_id']))
                     yield { "action": "delete_event", "email": email }
+                    try:
+                        calendars[email].delete_event(Event(summary = event.summary, start = event.start, event_id = added['event_id']))
+                    except Exception as e:
+                        print(e)
+
         elif not email in past_assignees:
             next_added += [add_event(calendars, event, email)]
             yield { "action": "add_to_calendar", "email": email }
@@ -122,9 +129,11 @@ def sync_events(calendars, page):
                     next_added += [added]
                     if not info_the_same:
                         event_with_id = event_from_page(page, event_id = added['event_id'])
-                        print(email, event_with_id, event_with_id.id)
-                        calendars[email].update_event(event_with_id)
                         yield { "action": "update_event", "email": email }
+                        try:
+                            calendars[email].update_event(event_with_id)
+                        except Exception as e:
+                            print(e)
                     else:
                         yield { "action": "no_change", "email": email }
 
@@ -177,7 +186,6 @@ def sync_calendars():
             else:
                 emails = assignees(page)
                 if emails:
-                    # yield f'New page {page.id} "{page.title}", adding for {emails}...'
                     added = []
                     for email in emails:
                         if email in calendars:
@@ -253,7 +261,10 @@ def flush_events_and_creds():
 
         for added in page_in_redis["added"]:
             email = added['email']
-            calendars[email].delete_event(Event(summary = page_in_redis['summary'], start = page_in_redis['start'], event_id = added['event_id']))
+            try:
+                calendars[email].delete_event(Event(summary = page_in_redis['summary'], start = page_in_redis['start'], event_id = added['event_id']))
+            except Exception as e:
+                print(e)
 
         redis_client.delete(f'notion-page:{page_id}')
 
