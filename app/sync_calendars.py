@@ -68,11 +68,12 @@ def redis_json_get(key):
 def event_from_page(page, event_id = None):
     return Event(summary = page.title, description = notion_url(page.id), start = page.due.start, end = page.due.end, event_id = event_id)
 
-def assignees(calendars, page):
-    return set(user.email for user in page.assign if user.email in calendars)
+def assignees(page):
+    return set(user.email for user in page.assign)
 
-def add_events(calendars, event, emails):
-    return [{ "email": email, "event_id": calendars[email].add_event(event).id } for email in emails]
+def add_event(calendars, event, email):
+    return { "email": email, "event_id": calendars[email].add_event(event).id }
+
 
 def redis_set_notion_page(page, added):
     key = f'notion-page:{page.id}'
@@ -123,8 +124,8 @@ def sync_events(calendars, page):
                     calendars[email].delete_event(Event(summary = event.summary, start = event.start, event_id = added['event_id']))
                     yield { "action": "delete_event", "email": email }
         elif not email in past_assignees:
-            next_added += add_events(calendars, event, [email])
-            yield { "action": "add_event", "email": email }
+            next_added += [add_event(calendars, event, email)]
+            yield { "action": "add_to_calendar", "email": email }
         else:
             for added in page_in_redis["added"]:
                 if added['email'] == email:
@@ -179,16 +180,27 @@ def sync_calendars():
                 for message in sync_events(calendars, page):
                     yield message
             else:
-                emails = assignees(calendars, page)
+                emails = assignees(page)
                 if emails:
-                    yield {
-                        "action": "add_events",
-                        "page_id": page.id,
-                        "page_title": page.title,
-                        "emails": emails
-                    }
                     # yield f'New page {page.id} "{page.title}", adding for {emails}...'
-                    added = add_events(calendars, event_from_page(page), emails)
+                    added = []
+                    for email in emails:
+                        if email in calendars:
+                            yield {
+                                "action": "add_event",
+                                "page_id": page.id,
+                                "page_title": page.title,
+                                "email": email
+                            }
+                            added += [add_event(calendars, event_from_page(page), email)]
+                        else:
+                            yield {
+                                "action": "skip_event",
+                                "page_id": page.id,
+                                "page_title": page.title,
+                                "email": email
+                            }
+
                     redis_set_notion_page(page, added)
 
     yield { "action": "sync_calendars_finished" }
@@ -214,8 +226,10 @@ def sync_calendars_flask(email = None):
             yield f'<p>Skipping sync of <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> as no one is assigned to it...</p>'
         elif event['action'] == 'sync_events_start':
             yield f'<p>Syncing events for <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a>...</p>'
-        elif event['action'] == 'add_events':
-            yield f'<p>Adding events for <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> to calendars of {mailto_links(event["emails"])}...</p>'
+        elif event['action'] == 'add_event':
+            yield f'<p>Adding event for <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> to calendar of {mailto_link(event["email"])}...</p>'
+        elif event['action'] == 'skip_event':
+            yield f'<p>Not adding event for <a target="_blank" href={notion_url(event["page_id"])}>{event["page_title"]}</a> to calendar of {mailto_link(event["email"])}, because we don\'t have permission...</p>'
         elif event['action'] == 'sync_calendars_finished':
             yield '<p>Syncing calendars finished!</p>'
         elif event['action'] == 'no_changes':
@@ -224,7 +238,7 @@ def sync_calendars_flask(email = None):
             yield f'<p>&emsp;Cannot sync with calendar of {mailto_link(event["email"])} as permission not yet given</p>'
         elif event['action'] == 'delete_event':
             yield f'<p>&emsp;Removed event from calendar of {mailto_link(event["email"])}</p>'
-        elif event['action'] == 'add_event':
+        elif event['action'] == 'add_to_calendar':
             yield f'<p>&emsp;Added event to calendar of {mailto_link(event["email"])}</p>'
         elif event['action'] == 'update_event':
             yield f'<p>&emsp;Updated event details for calendar of {mailto_link(event["email"])}</p>'
