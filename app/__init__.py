@@ -7,7 +7,7 @@ import googleapiclient
 from datetime import datetime
 from notion.client import NotionClient
 from gcsa.event import Event
-from .sync_calendars import auth_flow, all_notion_tables, notion_base_url, notion_url, redis_client, sync_calendars, GoogleCalendar
+from .sync_calendars import auth_flow, all_notion_tables, notion_base_url, notion_url, redis_client, sync_calendars_flask, GoogleCalendar
 
 
 app = flask.Flask(__name__)
@@ -64,13 +64,11 @@ def google_callback():
 @app.route('/finishoauth')
 def finishoauth():
     email = flask.request.args.get('email', default = '*', type = str)
-    sync_calendars()
-    return f'<p>Calendar sync set up for {email}</p><br><a href="/sync">Force calendar sync</a>'
+    return flask.Response(flask.stream_with_context(sync_calendars_flask(email)))
 
 @app.route('/sync')
 def sync_route():
-    sync_calendars()
-    return '<p>Calendars synced for all users</p>'
+    return flask.Response(flask.stream_with_context(sync_calendars_flask()))
 
 @app.route('/add-notion-page', methods=['POST'])
 def add_notion_page():
