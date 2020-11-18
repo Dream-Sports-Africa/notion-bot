@@ -216,6 +216,7 @@ def sync_calendars_flask(email = None):
         yield f'<p>DSA Notion Bot now authenticated to post to calendar for {email}.</p>'
 
     for event in sync_calendars():
+        print(event)
         if event['action'] == 'sync_calendars_start':
             yield '<p>Syncing calendars...</p>'
         elif event['action'] == 'sync_table_start':
