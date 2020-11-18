@@ -23,6 +23,10 @@ def landing_page():
 
         tracking_links += f'<li><a href="{notion_url(table.id)}">{b.title}</a></li>'
 
+    html += '<head><title>DSA Notion Bot</title></head>'
+    html += '<body>'
+    html += '<h1>DSA Notion Bot 🤖</h1>'
+    html += '<h2>This bot syncs pages in notion with your google calendar</h2>'
     html += '<a href="/google-callback">Set up calendar sync</a>'
     html += '<br>'
     html += '<a href="/sync">Force calendar sync</a>'
@@ -36,6 +40,7 @@ def landing_page():
     html += '        Add Notion Table to Track'
     html += '    </button>'
     html += '</form>'
+    html += '</body>'
     return html
 
 @app.route('/google-callback')
