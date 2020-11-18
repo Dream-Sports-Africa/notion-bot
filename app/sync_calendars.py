@@ -11,27 +11,12 @@ from gcsa.event import Event
 
 dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-credential_file_path = '/tmp/credentials.json'
-
 notion_client = NotionClient(token_v2 = os.environ['NOTION_TOKEN'])
 
 notion_base_url = os.environ['NOTION_BASE_URL']
 
 def notion_url(id):
     return f'{notion_base_url}/{id}'
-
-with open(credential_file_path, 'w') as outfile:
-    json.dump({
-        "web": {
-            "client_id": os.environ['GOOGLE_CALENDAR_CLIENT_ID'],
-            "project_id": os.environ['GOOGLE_CALENDAR_PROJECT_ID'],
-            "client_secret": os.environ['GOOGLE_CALENDAR_CLIENT_SECRET'],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "redirect_uris": [os.environ['GOOGLE_CALENDAR_REDIRECT_URI']]
-        }
-    }, outfile)
 
 # gcsa's GoogleCalendar.__init__ function assumes you want to store credentials locally using pickle,
 # so we monkey patch that behavior here
@@ -65,6 +50,12 @@ def redis_keys(prefix):
 def redis_json_get(key):
     return json.loads(redis_client.get(key))
 
+def redis_page_get(page_id):
+    page_in_redis = redis_json_get(f'notion-page:{page_id}')
+    page_in_redis['start'] = datetime.fromisoformat(page_in_redis['start'])
+    page_in_redis['end'] = datetime.fromisoformat(page_in_redis['end'])
+    return page_in_redis
+
 def event_from_page(page, event_id = None):
     return Event(summary = page.title, description = notion_url(page.id), start = page.due.start, end = page.due.end, event_id = event_id)
 
@@ -73,7 +64,6 @@ def assignees(page):
 
 def add_event(calendars, event, email):
     return { "email": email, "event_id": calendars[email].add_event(event).id }
-
 
 def redis_set_notion_page(page, added):
     key = f'notion-page:{page.id}'
@@ -90,17 +80,17 @@ def redis_set_notion_page(page, added):
         }))
 
 def auth_flow(redirect_uri):
-    return oauth2client.client.flow_from_clientsecrets(
-        credential_file_path,
+    return oauth2client.client.OAuth2WebServerFlow(
+        client_id=os.environ['GOOGLE_CALENDAR_CLIENT_ID'],
+        client_secret=os.environ['GOOGLE_CALENDAR_CLIENT_SECRET'],
         scope='https://www.googleapis.com/auth/calendar',
-        redirect_uri=redirect_uri)
+        redirect_uri=redirect_uri,
+        prompt='consent')
 
 def sync_events(calendars, page):
     event = event_from_page(page)
 
-    page_in_redis = redis_json_get(f'notion-page:{page.id}')
-    page_in_redis['start'] = datetime.fromisoformat(page_in_redis['start'])
-    page_in_redis['end'] = datetime.fromisoformat(page_in_redis['end'])
+    page_in_redis = redis_page_get(page.id)
 
     info_the_same = event.start == page_in_redis['start'] and event.end == page_in_redis['end'] and event.summary == page_in_redis['summary']
 
@@ -132,6 +122,7 @@ def sync_events(calendars, page):
                     next_added += [added]
                     if not info_the_same:
                         event_with_id = event_from_page(page, event_id = added['event_id'])
+                        print(email, event_with_id, event_with_id.id)
                         calendars[email].update_event(event_with_id)
                         yield { "action": "update_event", "email": email }
                     else:
@@ -139,13 +130,17 @@ def sync_events(calendars, page):
 
     redis_set_notion_page(page, next_added)
 
-def sync_calendars():
-    yield { "action": "sync_calendars_start" }
-
+def get_calendars():
     calendars = {}
     for email in redis_keys('creds'):
         credentials = oauth2client.client.OAuth2Credentials.from_json(redis_json_get(f'creds:{email}'))
         calendars[email] = GoogleCalendar(credentials)
+    return calendars
+
+def sync_calendars():
+    yield { "action": "sync_calendars_start" }
+
+    calendars = get_calendars()
 
     notion_page_ids = redis_keys('notion-page')
 
@@ -247,6 +242,23 @@ def sync_calendars_flask(email = None):
             yield f'<p>&emsp;No changes necessary to event details for calendar of {mailto_link(event["email"])}</p>'
         else:
             raise f'Unknown action {event["action"]}'
+
+def flush_events_and_creds():
+    calendars = get_calendars()
+
+    notion_page_ids = redis_keys('notion-page')
+
+    for page_id in notion_page_ids:
+        page_in_redis = redis_page_get(page_id)
+
+        for added in page_in_redis["added"]:
+            email = added['email']
+            calendars[email].delete_event(Event(summary = page_in_redis['summary'], start = page_in_redis['start'], event_id = added['event_id']))
+
+        redis_client.delete(f'notion-page:{page_id}')
+
+    for email in redis_keys('creds'):
+        redis_client.delete(f'creds:{email}')
 
 if __name__ == "__main__":
     for message in sync_calendars():
